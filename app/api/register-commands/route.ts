@@ -35,6 +35,26 @@ function sameOrigin(request: NextRequest) {
   return false;
 }
 
+function discordCommandPayload() {
+  const chatCommands = DISCORD_COMMANDS.map((command) => {
+    if (!("options" in command)) return { type: 1, ...command };
+
+    // Discord rejects a slash command when a required option appears after an
+    // optional option. Keep the source definitions readable, but normalize the
+    // wire payload so required options always come first.
+    const options = [...command.options].sort((a, b) => {
+      return Number(Boolean(b.required)) - Number(Boolean(a.required));
+    });
+
+    return { type: 1, ...command, options };
+  });
+
+  return [
+    ...chatCommands,
+    { type: 3, name: "Analyze with Horris" }
+  ];
+}
+
 export async function POST(request: NextRequest) {
   if (!sameOrigin(request)) {
     return json({ ok: false, code: "REGISTRATION_ORIGIN_REJECTED" }, 403);
@@ -57,10 +77,7 @@ export async function POST(request: NextRequest) {
   }
 
   const endpoint = `https://discord.com/api/v10/applications/${applicationId}/guilds/${guildId}/commands`;
-  const commands = [
-    ...DISCORD_COMMANDS.map((command) => ({ type: 1, ...command })),
-    { type: 3, name: "Analyze with Horris" }
-  ];
+  const commands = discordCommandPayload();
 
   let upstream: Response;
   try {
@@ -90,7 +107,7 @@ export async function POST(request: NextRequest) {
     let detail = "";
     try {
       const text = await upstream.text();
-      detail = text.slice(0, 500);
+      detail = text.slice(0, 1000);
     } catch {}
 
     return json({
