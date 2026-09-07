@@ -95,7 +95,8 @@ async function executeWalletCommand(name: unknown, actorId: string | null, inter
   if (name === "wallet") {
     const link = await getWalletLink(actorId);
     if (!link) return ephemeral("No wallet is linked to your Discord account. Run /connect-wallet first.");
-    return ephemeral(`Horris WALLET ✓ ${shortAddress(link.walletAddress)} · chain ${link.chainId} · verified ${link.verifiedAt}. Ownership verified; Discord cannot spend funds.`);
+    const chainNote = link.chainId === 42220 ? "Celo mainnet" : `chain ${link.chainId} · switch to Celo (42220) before any future execution`;
+    return ephemeral(`Horris WALLET ✓ ${shortAddress(link.walletAddress)} · ${chainNote} · verified ${link.verifiedAt}. Ownership verified; Discord cannot spend funds.`);
   }
 
   const removed = await disconnectWallet(actorId);
@@ -139,16 +140,20 @@ async function executeTrade(options: Record<string, unknown>) {
   const riskLine = analysis
     ? `${analysis.accountRiskPercent.toFixed(2)}% account risk · ${analysis.stopDistancePercent.toFixed(2)}% stop distance`
     : "Policy analysis unavailable";
+  const mathLine = analysis
+    ? `HORRIS MATH · $${analysis.notionalUsd.toFixed(4)} notional · $${(analysis.notionalUsd * analysis.stopDistancePercent / 100).toFixed(6)} projected loss at stop · ${(p.marginUsd / p.accountBalanceUsd * 100).toFixed(2)}% margin utilization`
+    : "";
   const rationale = p.rationale
-    ? `AI THESIS (NON-AUTHORITATIVE): ${p.rationale.replace(/\s+/g, " ").trim().slice(0, 420)}`
+    ? `AI THESIS (NON-AUTHORITATIVE): ${p.rationale.replace(/\s+/g, " ").trim().slice(0, 360)}`
     : "";
 
   return [
     `HORRIS AI TRADE PLAN · ${policy.verdict}`,
     ...policy.failedLines,
-    `${p.market} ${p.side.toUpperCase()} · ${p.leverage.toFixed(2)}x · $${p.marginUsd.toFixed(2)} margin`,
+    `${p.market} ${p.side.toUpperCase()} · ${p.leverage.toFixed(2)}x · $${p.marginUsd.toFixed(4)} margin`,
     `${priceLabel}: ${p.entryPrice} · STOP: ${p.stopLoss} · TAKE PROFIT: ${p.takeProfit}`,
     `${riskLine} · ${p.risk}`,
+    mathLine,
     `Model: ${result.model}`,
     rationale,
     "AI proposes. Horris policy decides. No transaction or order was submitted."
@@ -198,8 +203,20 @@ export async function POST(request: NextRequest) {
   try {
     const walletResponse = await executeWalletCommand(data.name, actorId, interaction.token, request);
     if (walletResponse) return json(walletResponse);
-    if (data.name === "help") return json(ephemeral("Horris commands: /trade, /connect-wallet, /wallet, /disconnect-wallet, /strategy, /risk, /perp-risk, /perp-status. /trade generates the AI plan directly in Discord. Wallet ownership is verified externally; signing and transaction approval never happen inside Discord."));
+    if (data.name === "help") return json(ephemeral("Horris commands: /trade, /connect-wallet, /wallet, /disconnect-wallet, /strategy, /risk, /perp-risk, /perp-status. /trade generates the AI plan directly in Discord. /perp-status uses your linked wallet unless you provide an address override. Wallet ownership is verified externally; signing and transaction approval never happen inside Discord."));
     if (data.name === "trade") return json(ephemeral(await executeTrade(optionMap(data.options))));
+    if (data.name === "perp-status") {
+      const options = optionMap(data.options);
+      if (!options.account) {
+        if (!actorId) return json(ephemeral("Horris could not resolve your Discord identity. Provide an account address explicitly."));
+        const link = await getWalletLink(actorId);
+        if (!link) return json(ephemeral("No wallet is linked yet. Run /connect-wallet, or provide an account address to /perp-status."));
+        options.account = link.walletAddress;
+        const content = await executeDiscordCommand(data.name, options);
+        return json(ephemeral(`Using linked wallet ${shortAddress(link.walletAddress)}.\n${content}`));
+      }
+      return json(ephemeral(await executeDiscordCommand(data.name, options)));
+    }
     const content = await executeDiscordCommand(data.name, optionMap(data.options));
     return json(ephemeral(content));
   } catch (error) {
