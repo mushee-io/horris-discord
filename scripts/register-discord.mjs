@@ -51,8 +51,8 @@ const commands = [
     ]
   },
   {
-    type: 1, name: "perp-status", description: "Read live UpDown positions and orders for a Celo wallet", options: [
-      { name: "account", description: "Celo wallet address", type: 3, required: true, min_length: 42, max_length: 42 }
+    type: 1, name: "perp-status", description: "Read live UpDown status; defaults to your linked wallet", options: [
+      { name: "account", description: "Optional Celo wallet address override", type: 3, required: false, min_length: 42, max_length: 42 }
     ]
   },
   { type: 3, name: "Analyze with Horris" }
