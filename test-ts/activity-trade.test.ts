@@ -20,9 +20,16 @@ describe("Horris Activity trade parser", () => {
     expect(parsed.risk).toBe("Aggressive");
   });
 
-  it("does not pretend a partial message is executable", () => {
+  it("allows a complete directional intent to resolve entry from the live UpDown oracle", () => {
+    const parsed = parseTradePrompt("BTC looks bullish", 1000);
+    expect(parsed.market).toBe("BTC");
+    expect(parsed.side).toBe("long");
+    expect(parsed.entryPrice).toBeUndefined();
+    expect(missingTradeFields(parsed)).toEqual([]);
+
     const summary = summarizeParsedMessage("BTC looks bullish");
-    expect(summary).toContain("Missing entry price");
+    expect(summary).toContain("live UpDown entry will be fetched");
+    expect(summary).toContain("No order has been submitted");
     expect(summary).toContain("/trade");
   });
 });
