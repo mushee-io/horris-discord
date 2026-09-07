@@ -82,7 +82,6 @@ export function missingTradeFields(parsed: ParsedTradePrompt) {
   const missing: string[] = [];
   if (!parsed.market) missing.push("market");
   if (!parsed.side) missing.push("side");
-  if (!parsed.entryPrice) missing.push("entry price");
   return missing;
 }
 
@@ -91,5 +90,6 @@ export function summarizeParsedMessage(prompt: string) {
   const parts = [parsed.market, parsed.side?.toUpperCase(), parsed.preferredMarginUsd ? `$${parsed.preferredMarginUsd} margin` : undefined, parsed.preferredLeverage ? `${parsed.preferredLeverage}x` : undefined, parsed.risk].filter(Boolean);
   const missing = missingTradeFields(parsed);
   if (missing.length) return `Horris found: ${parts.join(" · ") || "no complete trade intent"}. Missing ${missing.join(", ")}. Open /trade for AI planning and deterministic risk checks.`;
-  return `Horris found: ${parts.join(" · ")} · entry ${parsed.entryPrice}. Open /trade to generate the AI proposal and run Horris policy. No order has been submitted.`;
+  const entry = parsed.entryPrice ? ` · requested entry ${parsed.entryPrice}` : " · live UpDown entry will be fetched";
+  return `Horris found: ${parts.join(" · ")}${entry}. Open /trade to generate the AI proposal and run Horris policy. No order has been submitted.`;
 }
