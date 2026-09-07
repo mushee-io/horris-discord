@@ -42,8 +42,11 @@ describe("Discord interaction security", () => {
     expect(verifyDiscordRequest(`${body} `, headers, 1_800_000_000)).toBe(false);
   });
 
-  it("maps command options and keeps responses ephemeral", () => {
+  it("maps command options and keeps responses ephemeral and mention-safe", () => {
     expect(optionMap([{ name: "market", value: "BTC" }, { name: "leverage", value: 3 }])).toEqual({ market: "BTC", leverage: 3 });
-    expect(ephemeral("ok")).toEqual({ type: 4, data: { content: "ok", flags: 64 } });
+    expect(ephemeral("ok")).toEqual({
+      type: 4,
+      data: { content: "ok", flags: 64, allowed_mentions: { parse: [] } }
+    });
   });
 });
