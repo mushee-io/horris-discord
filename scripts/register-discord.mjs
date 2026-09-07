@@ -20,6 +20,9 @@ const commands = [
     ]
   },
   { type: 1, name: "help", description: "Show Horris commands and safety boundary" },
+  { type: 1, name: "connect-wallet", description: "Securely link an EVM wallet to your Discord account" },
+  { type: 1, name: "wallet", description: "Show the wallet verified for your Discord account" },
+  { type: 1, name: "disconnect-wallet", description: "Remove your verified wallet from Horris Discord" },
   {
     type: 1, name: "strategy", description: "Ask Horris Core for a stable strategy", options: [
       { name: "amount", description: "USDC amount", type: 10, required: true, min_value: 0.000001 },
