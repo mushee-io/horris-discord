@@ -4,6 +4,8 @@ import { createWalletChallenge, WalletLinkError } from "../../../../lib/wallet-l
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const MAX_WALLET_REQUEST_BYTES = 8 * 1024;
+
 function json(body: unknown, status = 200) {
   return NextResponse.json(body, {
     status,
@@ -22,8 +24,18 @@ export async function POST(request: NextRequest) {
     return json({ ok: false, code: "UNSUPPORTED_CONTENT_TYPE" }, 415);
   }
 
+  const declared = request.headers.get("content-length");
+  if (declared) {
+    const length = Number(declared);
+    if (!Number.isSafeInteger(length) || length < 0) return json({ ok: false, code: "INVALID_CONTENT_LENGTH" }, 400);
+    if (length > MAX_WALLET_REQUEST_BYTES) return json({ ok: false, code: "REQUEST_TOO_LARGE" }, 413);
+  }
+
+  const raw = await request.text();
+  if (Buffer.byteLength(raw, "utf8") > MAX_WALLET_REQUEST_BYTES) return json({ ok: false, code: "REQUEST_TOO_LARGE" }, 413);
+
   let body: unknown;
-  try { body = await request.json(); }
+  try { body = JSON.parse(raw); }
   catch { return json({ ok: false, code: "INVALID_JSON" }, 400); }
   if (!body || typeof body !== "object" || Array.isArray(body)) return json({ ok: false, code: "INVALID_REQUEST" }, 400);
 
