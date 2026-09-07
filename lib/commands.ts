@@ -72,8 +72,8 @@ export const DISCORD_COMMANDS = [
   },
   {
     name: "perp-status",
-    description: "Read live UpDown positions and orders for a Celo wallet",
-    options: [{ name: "account", description: "Celo wallet address", type: 3, required: true, min_length: 42, max_length: 42 }]
+    description: "Read live UpDown status; defaults to your linked wallet",
+    options: [{ name: "account", description: "Optional Celo wallet address override", type: 3, required: false, min_length: 42, max_length: 42 }]
   }
 ] as const;
 
@@ -119,14 +119,14 @@ export function formatStrategy(data: StrategyResponse) {
 }
 export function formatStableRisk(data: StrategyResponse) {
   if (data.simulation.passed) return `Horris POLICY PASS · ${data.proposal.amount} ${data.proposal.assetIn} · ${data.proposal.risk} · risk score ${data.proposal.riskScore}/100. No transaction submitted.`;
-  const failed = data.simulation.checks.filter((check) => !check.passed).map((check) => check.rule).join(", ");
-  return `Horris POLICY BLOCK · failed: ${failed || "policy"}. No transaction submitted.`;
+  const failed = data.simulation.checks.filter((check) => !check.passed).map((check) => check.detail ? `${check.rule}: ${check.detail}` : check.rule).slice(0, 4).join(" · ");
+  return `Horris POLICY BLOCK · ${failed || "policy rejected the proposal"}. No transaction submitted.`;
 }
 export function formatPerpRisk(data: PerpAnalysisResponse, requestedMarket: string, requestedSide: PerpSide) {
   const analysis = data.analysis;
   if (analysis.approved) return `Horris PERP PASS · ${requestedMarket.toUpperCase()} ${requestedSide.toUpperCase()} · $${analysis.notionalUsd.toFixed(2)} notional · ${analysis.accountRiskPercent.toFixed(2)}% account risk · ${analysis.stopDistancePercent.toFixed(2)}% stop distance. Analysis only; no order submitted.`;
-  const failed = analysis.checks.filter((check) => !check.passed).map((check) => check.label).join(", ");
-  return `Horris PERP BLOCK · ${requestedMarket.toUpperCase()} ${requestedSide.toUpperCase()} · failed: ${failed || "policy"}. Analysis only; no order submitted.`;
+  const failed = analysis.checks.filter((check) => !check.passed).slice(0, 4).map((check) => `${check.label}: ${check.detail}`).join(" · ");
+  return `Horris PERP BLOCK · ${requestedMarket.toUpperCase()} ${requestedSide.toUpperCase()} · ${failed || "policy rejected the proposal"}. Analysis only; no order submitted.`;
 }
 export function formatPerpStatus(positions: PositionsResponse, orders: OrdersResponse) {
   const lines: string[] = [`Horris UPDOWN STATUS · ${positions.positionCount} open position${positions.positionCount === 1 ? "" : "s"} · ${orders.orderCount} open order${orders.orderCount === 1 ? "" : "s"}.`];
