@@ -9,7 +9,16 @@ const risks = ["Conservative", "Balanced", "Aggressive"].map((name) => ({ name, 
 const markets = ["BTC", "ETH", "CELO", "EURm", "JPYm", "NGNm", "AUDm", "GBPm"].map((name) => ({ name, value: name }));
 
 const commands = [
-  { type: 1, name: "trade", description: "Launch the Horris AI trading desk" },
+  {
+    type: 1,
+    name: "trade",
+    description: "Generate a Horris AI trade plan directly in Discord",
+    options: [
+      { name: "prompt", description: "Example: Long BTC with $50 safely", type: 3, required: true, min_length: 3, max_length: 1000 },
+      { name: "balance", description: "Planning balance in USD", type: 10, required: true, min_value: 0.01, max_value: 1000000000 },
+      { name: "risk", description: "Horris risk profile", type: 3, required: true, choices: risks }
+    ]
+  },
   { type: 1, name: "help", description: "Show Horris commands and safety boundary" },
   {
     type: 1, name: "strategy", description: "Ask Horris Core for a stable strategy", options: [
