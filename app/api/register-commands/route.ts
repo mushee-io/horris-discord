@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { DISCORD_COMMANDS } from "../../../lib/commands";
+import { WALLET_DISCORD_COMMANDS } from "../../../lib/wallet-commands";
 
 export const dynamic = "force-dynamic";
 
@@ -36,7 +37,7 @@ function sameOrigin(request: NextRequest) {
 }
 
 function discordCommandPayload() {
-  const chatCommands = DISCORD_COMMANDS.map((command) => {
+  const chatCommands = [...DISCORD_COMMANDS, ...WALLET_DISCORD_COMMANDS].map((command) => {
     if (!("options" in command)) return { type: 1, ...command };
 
     // Discord rejects a slash command when a required option appears after an
