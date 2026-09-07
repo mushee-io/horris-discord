@@ -9,23 +9,24 @@ const risks = ["Conservative", "Balanced", "Aggressive"].map((name) => ({ name, 
 const markets = ["BTC", "ETH", "CELO", "EURm", "JPYm", "NGNm", "AUDm", "GBPm"].map((name) => ({ name, value: name }));
 
 const commands = [
-  { name: "help", description: "Show Horris commands and safety boundary" },
+  { type: 1, name: "trade", description: "Launch the Horris AI trading desk" },
+  { type: 1, name: "help", description: "Show Horris commands and safety boundary" },
   {
-    name: "strategy", description: "Ask Horris Core for a stable strategy", options: [
+    type: 1, name: "strategy", description: "Ask Horris Core for a stable strategy", options: [
       { name: "amount", description: "USDC amount", type: 10, required: true, min_value: 0.000001 },
       { name: "balance", description: "Available USDC balance", type: 10, required: true, min_value: 0 },
       { name: "risk", description: "Horris risk profile", type: 3, required: true, choices: risks }
     ]
   },
   {
-    name: "risk", description: "Run Horris deterministic risk policy", options: [
+    type: 1, name: "risk", description: "Run Horris deterministic risk policy", options: [
       { name: "amount", description: "USDC amount", type: 10, required: true, min_value: 0.000001 },
       { name: "balance", description: "Available USDC balance", type: 10, required: true, min_value: 0 },
       { name: "risk", description: "Horris risk profile", type: 3, required: true, choices: risks }
     ]
   },
   {
-    name: "perp-risk", description: "Analyze a perp proposal through Horris policy", options: [
+    type: 1, name: "perp-risk", description: "Analyze a perp proposal through Horris policy", options: [
       { name: "market", description: "UpDown market", type: 3, required: true, choices: markets },
       { name: "side", description: "Trade side", type: 3, required: true, choices: [{ name: "Long", value: "long" }, { name: "Short", value: "short" }] },
       { name: "balance", description: "Account balance in USD", type: 10, required: true, min_value: 0.000001 },
@@ -38,10 +39,11 @@ const commands = [
     ]
   },
   {
-    name: "perp-status", description: "Read live UpDown positions and orders for a Celo wallet", options: [
+    type: 1, name: "perp-status", description: "Read live UpDown positions and orders for a Celo wallet", options: [
       { name: "account", description: "Celo wallet address", type: 3, required: true, min_length: 42, max_length: 42 }
     ]
-  }
+  },
+  { type: 3, name: "Analyze with Horris" }
 ];
 
 const endpoint = guildId
@@ -50,10 +52,7 @@ const endpoint = guildId
 
 const response = await fetch(endpoint, {
   method: "PUT",
-  headers: {
-    Authorization: `Bot ${token}`,
-    "Content-Type": "application/json"
-  },
+  headers: { Authorization: `Bot ${token}`, "Content-Type": "application/json" },
   body: JSON.stringify(commands)
 });
 
@@ -64,4 +63,4 @@ if (!response.ok) {
 
 const registered = await response.json();
 console.log(`Registered ${registered.length} Horris command(s) ${guildId ? `for guild ${guildId}` : "globally"}.`);
-console.log(registered.map((command) => `/${command.name}`).join(", "));
+console.log(registered.map((command) => command.type === 3 ? command.name : `/${command.name}`).join(", "));
