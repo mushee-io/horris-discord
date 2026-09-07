@@ -7,8 +7,8 @@ const strategy = {
 };
 
 describe("Discord command surface", () => {
-  it("ships only the intended Horris command set", () => {
-    expect(DISCORD_COMMANDS.map((command) => command.name)).toEqual(["help", "strategy", "risk", "perp-risk", "perp-status"]);
+  it("ships the Horris Activity launch plus advisory commands", () => {
+    expect(DISCORD_COMMANDS.map((command) => command.name)).toEqual(["trade", "help", "strategy", "risk", "perp-risk", "perp-status"]);
   });
 
   it("formats stable strategy and risk replies as non-executing", () => {
@@ -18,32 +18,13 @@ describe("Discord command surface", () => {
   });
 
   it("formats perp policy results without claiming execution", () => {
-    const message = formatPerpRisk({
-      venue: "UpDown",
-      executionEnabled: false,
-      analysis: {
-        approved: true,
-        notionalUsd: 300,
-        accountRiskPercent: 0.6,
-        stopDistancePercent: 2,
-        checks: [],
-        warnings: []
-      }
-    }, "BTC", "long");
+    const message = formatPerpRisk({ venue: "UpDown", executionEnabled: false, analysis: { approved: true, notionalUsd: 300, accountRiskPercent: 0.6, stopDistancePercent: 2, checks: [], warnings: [] } }, "BTC", "long");
     expect(message).toContain("PERP PASS");
     expect(message).toContain("no order submitted");
   });
 
   it("formats bounded live status summaries", () => {
-    const message = formatPerpStatus({
-      positionCount: 1,
-      readOnly: true,
-      positions: [{ market: "BTC/USDT", side: "long", sizeUsd: "500", collateralAmount: "100", effectiveLeverage: 5 }]
-    }, {
-      orderCount: 1,
-      readOnly: true,
-      orders: [{ key: "0x1", market: "BTC/USDT", type: "StopLossDecrease", side: "long", sizeUsd: "500", triggerPrice: "98000", acceptablePrice: null, isFrozen: false }]
-    });
+    const message = formatPerpStatus({ positionCount: 1, readOnly: true, positions: [{ market: "BTC/USDT", side: "long", sizeUsd: "500", collateralAmount: "100", effectiveLeverage: 5 }] }, { orderCount: 1, readOnly: true, orders: [{ key: "0x1", market: "BTC/USDT", type: "StopLossDecrease", side: "long", sizeUsd: "500", triggerPrice: "98000", acceptablePrice: null, isFrozen: false }] });
     expect(message).toContain("1 open position");
     expect(message).toContain("1 open order");
     expect(message).toContain("Read-only status");
