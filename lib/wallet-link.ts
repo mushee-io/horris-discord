@@ -3,6 +3,7 @@ import { getAddress, isAddress, verifyMessage, type Hex } from "viem";
 
 const LINK_TTL_SECONDS = 10 * 60;
 const WALLET_TTL_SECONDS = 365 * 24 * 60 * 60;
+const WALLET_SAVE_LOCK_SECONDS = 15;
 const KEY_PREFIX = "horris:discord:wallet";
 const REQUEST_ID = /^[a-f0-9]{32}$/;
 const DISCORD_USER_ID = /^\d{16,20}$/;
@@ -119,6 +120,18 @@ async function storeSet(key: string, value: string, ttlSeconds: number) {
   memory.set(key, { value, expiresAt: Date.now() + ttlSeconds * 1000 });
 }
 
+async function storeSetIfAbsent(key: string, value: string, ttlSeconds: number) {
+  ensureStore();
+  if (redisConfig()) {
+    const result = await redis(["SET", key, value, "EX", ttlSeconds, "NX"]);
+    return result === "OK";
+  }
+  pruneMemory();
+  if (memory.has(key)) return false;
+  memory.set(key, { value, expiresAt: Date.now() + ttlSeconds * 1000 });
+  return true;
+}
+
 async function storeGet(key: string) {
   ensureStore();
   if (redisConfig()) {
@@ -144,6 +157,9 @@ function requestKey(requestId: string) {
 }
 function userKey(discordUserId: string) {
   return `${KEY_PREFIX}:user:${discordUserId}`;
+}
+function userSaveLockKey(discordUserId: string) {
+  return `${KEY_PREFIX}:lock:${discordUserId}`;
 }
 function addressKey(address: string) {
   return `${KEY_PREFIX}:address:${address.toLowerCase()}`;
@@ -251,18 +267,55 @@ export async function createWalletChallenge(input: { token: string; address: str
 }
 
 async function saveWalletLink(link: WalletLink) {
-  const existingOwner = await storeGet(addressKey(link.walletAddress));
-  if (existingOwner && existingOwner !== link.discordUserId) {
-    throw new WalletLinkError("That wallet is already linked to another Discord account.", "WALLET_ALREADY_LINKED", 409);
+  const lock = userSaveLockKey(link.discordUserId);
+  const lockValue = randomBytes(16).toString("hex");
+  const lockAcquired = await storeSetIfAbsent(lock, lockValue, WALLET_SAVE_LOCK_SECONDS);
+  if (!lockAcquired) {
+    throw new WalletLinkError("Another wallet link is already being finalized for this Discord account. Try again.", "WALLET_LINK_IN_PROGRESS", 409);
   }
 
-  const previous = await getWalletLink(link.discordUserId);
-  if (previous && previous.walletAddress.toLowerCase() !== link.walletAddress.toLowerCase()) {
-    await storeDelete(addressKey(previous.walletAddress));
-  }
+  const targetAddressKey = addressKey(link.walletAddress);
+  let claimedTarget = false;
+  try {
+    const existingOwner = await storeGet(targetAddressKey);
+    if (existingOwner && existingOwner !== link.discordUserId) {
+      throw new WalletLinkError("That wallet is already linked to another Discord account.", "WALLET_ALREADY_LINKED", 409);
+    }
 
-  await storeSet(userKey(link.discordUserId), JSON.stringify(link), WALLET_TTL_SECONDS);
-  await storeSet(addressKey(link.walletAddress), link.discordUserId, WALLET_TTL_SECONDS);
+    if (!existingOwner) {
+      claimedTarget = await storeSetIfAbsent(targetAddressKey, link.discordUserId, WALLET_TTL_SECONDS);
+      if (!claimedTarget) {
+        const racedOwner = await storeGet(targetAddressKey);
+        if (racedOwner !== link.discordUserId) {
+          throw new WalletLinkError("That wallet is already linked to another Discord account.", "WALLET_ALREADY_LINKED", 409);
+        }
+      }
+    } else {
+      // Refresh the reverse mapping when this Discord account already owns it.
+      await storeSet(targetAddressKey, link.discordUserId, WALLET_TTL_SECONDS);
+    }
+
+    const previous = await getWalletLink(link.discordUserId);
+    try {
+      await storeSet(userKey(link.discordUserId), JSON.stringify(link), WALLET_TTL_SECONDS);
+    } catch (error) {
+      if (claimedTarget) {
+        try { await storeDelete(targetAddressKey); } catch {}
+      }
+      throw error;
+    }
+
+    if (previous && previous.walletAddress.toLowerCase() !== link.walletAddress.toLowerCase()) {
+      await storeDelete(addressKey(previous.walletAddress));
+    }
+  } finally {
+    // The lock has a short TTL as a crash fallback; best-effort deletion keeps
+    // normal sequential links responsive.
+    try {
+      const current = await storeGet(lock);
+      if (current === lockValue) await storeDelete(lock);
+    } catch {}
+  }
 }
 
 export async function verifyWalletChallenge(input: { token: string; address: string; signature: string }) {
