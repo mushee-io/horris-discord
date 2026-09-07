@@ -42,11 +42,13 @@ if (!joined.includes("verifyDiscordRequest")) throw new Error("Discord signature
 if (!joined.includes("MAX_TIMESTAMP_SKEW_SECONDS")) throw new Error("Discord replay window is missing");
 if (!joined.includes("DISCORD_CLIENT_SECRET")) throw new Error("Discord Activity server-side OAuth secret configuration is missing");
 if (!joined.includes("commands.authorize") || !joined.includes("commands.authenticate")) throw new Error("Discord Activity OAuth handshake is missing");
+if (!joined.includes("MAX_OAUTH_REQUEST_BYTES") || !joined.includes("MAX_ACTIVITY_REQUEST_BYTES") || !joined.includes("MAX_STATUS_REQUEST_BYTES")) throw new Error("Discord Activity/OAuth actual-body bounds are missing");
 if (!joined.includes("Generate a Horris AI trade plan directly in Discord")) throw new Error("Direct Discord /trade planning command is missing");
 if (!joined.includes("requestActivityAdvisor") || !joined.includes("getMarketPrice")) throw new Error("Direct /trade AI or live price integration is missing");
 if (!joined.includes("BLOCKED BY") || !joined.includes("HORRIS MATH")) throw new Error("Deterministic policy explanation is missing from direct /trade output");
 if (!joined.includes("verifyMessage") || !joined.includes("personal_sign")) throw new Error("Wallet ownership verification flow is missing");
 if (!joined.includes("MAX_WALLET_REQUEST_BYTES")) throw new Error("Wallet verification request body bounds are missing");
+if (!joined.includes("storeSetIfAbsent") || !joined.includes("userSaveLockKey") || !joined.includes('"NX"')) throw new Error("Atomic wallet ownership claims are missing");
 if (!joined.includes("KV_REST_API_URL") || !joined.includes("UPSTASH_REDIS_REST_URL")) throw new Error("Persistent wallet storage configuration is missing");
 if (!joined.includes("walletPersistentStoreConfigured") || !joined.includes("walletLinkSecretConfigured")) throw new Error("Wallet deployment readiness checks are missing");
 if (!joined.includes("WALLET_DISCORD_COMMANDS")) throw new Error("Wallet commands are missing from command registration/readiness surfaces");
