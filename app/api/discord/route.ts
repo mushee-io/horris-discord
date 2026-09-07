@@ -6,6 +6,7 @@ import { getMarketPrice, HorrisApiError, type HorrisRisk } from "../../../lib/ho
 import { consumeInteractionId, ephemeral, MAX_INTERACTION_BYTES, optionMap, verifyDiscordRequest } from "../../../lib/discord-security";
 import { consumeDiscordRateLimit, discordActorId } from "../../../lib/rate-limit";
 import { createWalletLinkRequest, disconnectWallet, getWalletLink, WalletLinkError } from "../../../lib/wallet-link";
+import { formatPolicyDecision } from "../../../lib/policy-display";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -134,14 +135,17 @@ async function executeTrade(options: Record<string, unknown>) {
 
   const p = result.proposal;
   const analysis = result.review.analysis;
-  const verdict = result.review.accepted && analysis?.approved ? "POLICY PASS" : "POLICY BLOCK";
+  const policy = formatPolicyDecision({ accepted: result.review.accepted, analysis });
   const riskLine = analysis
     ? `${analysis.accountRiskPercent.toFixed(2)}% account risk · ${analysis.stopDistancePercent.toFixed(2)}% stop distance`
     : "Policy analysis unavailable";
-  const rationale = p.rationale ? `\nAI: ${p.rationale.slice(0, 420)}` : "";
+  const rationale = p.rationale
+    ? `AI THESIS (NON-AUTHORITATIVE): ${p.rationale.replace(/\s+/g, " ").trim().slice(0, 420)}`
+    : "";
 
   return [
-    `HORRIS AI TRADE PLAN · ${verdict}`,
+    `HORRIS AI TRADE PLAN · ${policy.verdict}`,
+    ...policy.failedLines,
     `${p.market} ${p.side.toUpperCase()} · ${p.leverage.toFixed(2)}x · $${p.marginUsd.toFixed(2)} margin`,
     `${priceLabel}: ${p.entryPrice} · STOP: ${p.stopLoss} · TAKE PROFIT: ${p.takeProfit}`,
     `${riskLine} · ${p.risk}`,
