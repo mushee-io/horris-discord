@@ -30,21 +30,21 @@ afterEach(async () => {
   delete process.env.WALLET_LINK_SECRET;
 });
 
+async function signedLink(user: string, interactionToken: string, wallet = account) {
+  const token = await createWalletLinkRequest(user, interactionToken);
+  const challenge = await createWalletChallenge({ token, address: wallet.address, chainId: 42220, domain: "horris-discord.vercel.app" });
+  const signature = await wallet.signMessage({ message: challenge.message });
+  return { token, challenge, signature, wallet };
+}
+
 describe("Discord wallet ownership linking", () => {
   it("links a signed EVM wallet and makes it available to Discord commands", async () => {
-    const token = await createWalletLinkRequest(userA, "discord-interaction-token-a");
-    const challenge = await createWalletChallenge({
-      token,
-      address: account.address,
-      chainId: 42220,
-      domain: "horris-discord.vercel.app",
-    });
+    const { token, challenge, signature } = await signedLink(userA, "discord-interaction-token-a");
 
     expect(challenge.message).toContain(`Discord User: ${userA}`);
     expect(challenge.message).toContain(`Wallet: ${account.address}`);
     expect(challenge.message).toContain("This signature cannot move funds");
 
-    const signature = await account.signMessage({ message: challenge.message });
     const verified = await verifyWalletChallenge({ token, address: account.address, signature });
 
     expect(verified.link.discordUserId).toBe(userA);
@@ -67,25 +67,48 @@ describe("Discord wallet ownership linking", () => {
   });
 
   it("prevents the same wallet from being linked to two Discord accounts", async () => {
-    const firstToken = await createWalletLinkRequest(userA, "discord-interaction-token-c");
-    const firstChallenge = await createWalletChallenge({ token: firstToken, address: account.address, chainId: 42220, domain: "horris-discord.vercel.app" });
-    const firstSignature = await account.signMessage({ message: firstChallenge.message });
-    await verifyWalletChallenge({ token: firstToken, address: account.address, signature: firstSignature });
+    const first = await signedLink(userA, "discord-interaction-token-c");
+    await verifyWalletChallenge({ token: first.token, address: account.address, signature: first.signature });
 
-    const secondToken = await createWalletLinkRequest(userB, "discord-interaction-token-d");
-    const secondChallenge = await createWalletChallenge({ token: secondToken, address: account.address, chainId: 42220, domain: "horris-discord.vercel.app" });
-    const secondSignature = await account.signMessage({ message: secondChallenge.message });
+    const second = await signedLink(userB, "discord-interaction-token-d");
+    await expect(verifyWalletChallenge({ token: second.token, address: account.address, signature: second.signature })).rejects.toBeInstanceOf(WalletLinkError);
+    await expect(verifyWalletChallenge({ token: second.token, address: account.address, signature: second.signature })).rejects.toMatchObject({ code: "WALLET_ALREADY_LINKED", status: 409 });
+  });
 
-    await expect(verifyWalletChallenge({ token: secondToken, address: account.address, signature: secondSignature })).rejects.toBeInstanceOf(WalletLinkError);
-    await expect(verifyWalletChallenge({ token: secondToken, address: account.address, signature: secondSignature })).rejects.toMatchObject({ code: "WALLET_ALREADY_LINKED", status: 409 });
+  it("atomically rejects concurrent attempts to assign two wallets to one Discord account", async () => {
+    const first = await signedLink(userA, "discord-interaction-token-f", account);
+    const second = await signedLink(userA, "discord-interaction-token-g", otherAccount);
+
+    const results = await Promise.allSettled([
+      verifyWalletChallenge({ token: first.token, address: account.address, signature: first.signature }),
+      verifyWalletChallenge({ token: second.token, address: otherAccount.address, signature: second.signature }),
+    ]);
+
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    const rejected = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
+    expect(rejected?.reason).toMatchObject({ code: "WALLET_LINK_IN_PROGRESS", status: 409 });
+    const stored = await getWalletLink(userA);
+    expect([account.address.toLowerCase(), otherAccount.address.toLowerCase()]).toContain(stored?.walletAddress.toLowerCase());
+  });
+
+  it("atomically allows only one Discord account to claim a wallet", async () => {
+    const first = await signedLink(userA, "discord-interaction-token-h", account);
+    const second = await signedLink(userB, "discord-interaction-token-i", account);
+
+    const results = await Promise.allSettled([
+      verifyWalletChallenge({ token: first.token, address: account.address, signature: first.signature }),
+      verifyWalletChallenge({ token: second.token, address: account.address, signature: second.signature }),
+    ]);
+
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    const rejected = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
+    expect(rejected?.reason).toMatchObject({ code: "WALLET_ALREADY_LINKED", status: 409 });
   });
 
   it("consumes a successful wallet-link request so it cannot be replayed", async () => {
-    const token = await createWalletLinkRequest(userA, "discord-interaction-token-e");
-    const challenge = await createWalletChallenge({ token, address: account.address, chainId: 42220, domain: "horris-discord.vercel.app" });
-    const signature = await account.signMessage({ message: challenge.message });
-    await verifyWalletChallenge({ token, address: account.address, signature });
+    const linked = await signedLink(userA, "discord-interaction-token-e");
+    await verifyWalletChallenge({ token: linked.token, address: account.address, signature: linked.signature });
 
-    await expect(verifyWalletChallenge({ token, address: account.address, signature })).rejects.toMatchObject({ code: "REQUEST_EXPIRED", status: 410 });
+    await expect(verifyWalletChallenge({ token: linked.token, address: account.address, signature: linked.signature })).rejects.toMatchObject({ code: "REQUEST_EXPIRED", status: 410 });
   });
 });
