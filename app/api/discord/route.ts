@@ -67,12 +67,9 @@ export async function POST(request: NextRequest) {
   }
 
   const data = interaction.data as Record<string, unknown>;
-  if (data.name === "trade") {
-    // Discord callback type 12 launches the Activity associated with this application.
-    return json({ type: 12 });
-  }
+  if (data.name === "trade") return json({ type: 12 });
 
-  if (data.name === "analyze-with-horris") {
+  if (data.name === "Analyze with Horris" || data.name === "analyze-with-horris") {
     const content = resolvedMessageContent(data);
     return json(ephemeral(content ? summarizeParsedMessage(content) : "Horris could not read that message. Use /trade to open the AI trading desk."));
   }
