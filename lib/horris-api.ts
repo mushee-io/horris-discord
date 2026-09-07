@@ -191,10 +191,11 @@ function validatePerp(value: unknown): PerpAnalysisResponse {
 function validatePositions(value: unknown): PositionsResponse {
   const root = record(value, "Horris positions response");
   if (root.readOnly !== true) throw new HorrisApiError("Horris Core read-only boundary is invalid", 502, "HORRIS_CORE_INVALID_RESPONSE");
-  const positions = boundedArray(root.positions, "Horris positions").map((item) => {
+  const positions = boundedArray(root.positions, "Horris positions").map((item): Position => {
     const position = record(item, "Horris position");
-    const side = position.side;
-    if (side !== "long" && side !== "short") throw new HorrisApiError("Horris position side is invalid", 502, "HORRIS_CORE_INVALID_RESPONSE");
+    const rawSide = position.side;
+    if (rawSide !== "long" && rawSide !== "short") throw new HorrisApiError("Horris position side is invalid", 502, "HORRIS_CORE_INVALID_RESPONSE");
+    const side: Position["side"] = rawSide;
     const leverage = position.effectiveLeverage === null ? null : number(position.effectiveLeverage, "Horris position leverage", 0, 100_000);
     return {
       market: text(position.market, "Horris position market", 120),
@@ -210,10 +211,11 @@ function validatePositions(value: unknown): PositionsResponse {
 function validateOrders(value: unknown): OrdersResponse {
   const root = record(value, "Horris orders response");
   if (root.readOnly !== true) throw new HorrisApiError("Horris Core read-only boundary is invalid", 502, "HORRIS_CORE_INVALID_RESPONSE");
-  const orders = boundedArray(root.orders, "Horris orders").map((item) => {
+  const orders = boundedArray(root.orders, "Horris orders").map((item): Order => {
     const order = record(item, "Horris order");
-    const side = order.side;
-    if (side !== "long" && side !== "short") throw new HorrisApiError("Horris order side is invalid", 502, "HORRIS_CORE_INVALID_RESPONSE");
+    const rawSide = order.side;
+    if (rawSide !== "long" && rawSide !== "short") throw new HorrisApiError("Horris order side is invalid", 502, "HORRIS_CORE_INVALID_RESPONSE");
+    const side: Order["side"] = rawSide;
     const nullableDecimal = (value: unknown, label: string) => value === null ? null : decimalString(value, label);
     return {
       key: text(order.key, "Horris order key", 160),
