@@ -1,94 +1,121 @@
 # Horris Discord
 
-Discord-only interface for the Horris protocol.
+Horris Discord is the Discord-native interface for Horris Core: an **AI trading desk inside Discord** with deterministic risk controls.
 
-Horris Discord is intentionally **read-only / advisory**. It does not custody funds, sign transactions, broadcast trades, or bypass Horris policy. It calls the canonical Horris Core API for strategy, risk, perp-risk, and live UpDown position/order status.
+Users can launch the Activity with `/trade`, describe a perp idea in normal language, let Horris AI propose margin/leverage/stop/target, and then let canonical Horris policy decide whether the plan passes. Final signing remains an explicit wallet action outside Discord.
 
-## Commands
+## What ships
 
-- `/help` — show available Horris commands and safety boundary.
-- `/strategy amount balance risk` — request a stable strategy from Horris Core.
-- `/risk amount balance risk` — run Horris deterministic policy against a stable strategy.
-- `/perp-risk market side balance margin leverage entry stop take_profit risk` — run Horris perp risk analysis.
-- `/perp-status account` — read live UpDown positions and orders for a Celo address.
+- **Discord Activity / mini-app** at `/`
+- `/trade` — launches the Activity directly using Discord's Activity callback
+- `/help`
+- `/strategy amount balance risk`
+- `/risk amount balance risk`
+- `/perp-risk market side balance margin leverage entry stop take_profit risk`
+- `/perp-status account`
+- **Message context command:** `Apps → Analyze with Horris`
+- AI natural-language trade composer
+- SAFE / BALANCED / DEGEN risk dial mapped to Horris profiles
+- live read-only UpDown position/order dashboard
+- Discord-native invite dialog
+- Discord-native trade setup sharing
+- explicit external Horris Terminal handoff for wallet review
 
-## Architecture
+## Security boundary
+
+Horris Discord does **not** custody funds, receive seed phrases/private keys, sign transactions, broadcast trades, or implement a second execution engine.
 
 ```text
 Discord user
    ↓
-Horris Discord (this repo)
-   ↓ signed interaction verification
-Horris API client
+Horris Activity / commands
+   ↓ Discord OAuth + signed interaction verification
+Horris Discord backend
    ↓
 Horris Core API
    ↓
-Horris deterministic policy / UpDown reads
+Horris AI proposal (untrusted)
+   ↓
+Horris deterministic policy (authority)
+   ↓
+External Horris Terminal / wallet approval
 ```
 
-The Discord app does not contain a second execution engine. Horris Core remains the authority.
+AI cannot approve itself. `executionEnabled` stays false throughout this repository.
 
-## Environment
+## Production environment
 
-Copy `.env.example` to `.env.local` for local development.
+```text
+DISCORD_PUBLIC_KEY=
+DISCORD_APPLICATION_ID=
+DISCORD_CLIENT_SECRET=
+DISCORD_BOT_TOKEN=
+HORRIS_API_BASE_URL=https://horris-delta.vercel.app
+HORRIS_TERMINAL_URL=https://horris-delta.vercel.app/terminal
+```
 
-Required for production:
+Optional for instant development command registration:
 
-- `DISCORD_PUBLIC_KEY` — Discord application public key.
-- `DISCORD_APPLICATION_ID` — Discord application/client ID.
-- `DISCORD_BOT_TOKEN` — used only by the command registration script. Do not expose it to the browser.
-- `HORRIS_API_BASE_URL` — canonical Horris deployment, e.g. `https://horris-delta.vercel.app`.
+```text
+DISCORD_GUILD_ID=
+```
 
-Optional:
+`DISCORD_CLIENT_SECRET` and `DISCORD_BOT_TOKEN` are server-only secrets. Never expose either through a `NEXT_PUBLIC_` variable.
 
-- `DISCORD_GUILD_ID` — registers commands to one guild instantly during development. Omit for global registration.
+## Discord Developer Portal setup
 
-Never commit Discord tokens or private keys.
+1. Create/select the Horris Discord application.
+2. Enable **User Install** and **Guild Install**.
+3. Under OAuth2 add a redirect URI (Discord's Activity flow handles returning to the Activity; `https://127.0.0.1` is sufficient for the required placeholder during setup).
+4. Under **Activities → URL Mappings**, map `/` to the deployed Horris Discord host.
+5. Enable **Activities**.
+6. Set the **Interactions Endpoint URL** to `https://<deployment>/api/discord`.
+7. Add the environment variables above to the deployment.
+8. Deploy.
+9. Run `npm run discord:register` from a trusted environment to register `/trade`, advisory commands, and `Analyze with Horris`.
 
-## Run locally
+Discord also creates a default Activity entry point when Activities are enabled. `/trade` is an additional fast launch path.
+
+## Local development
 
 ```bash
 npm install
 npm run dev
 ```
 
-Interaction endpoint:
+Useful endpoints:
 
 ```text
-http://localhost:3000/api/discord
+/                         Activity UI
+/api/discord              Discord interaction webhook
+/api/oauth/token          Activity OAuth code exchange
+/api/activity/compose     authenticated AI trade planning
+/api/activity/status      authenticated read-only positions/orders
+/api/health               safe deployment readiness
 ```
 
-Health endpoint:
+Browser access to `/` renders a preview. Live OAuth, AI planning, invites, sharing and Activity launch behavior require the app to run inside Discord.
 
-```text
-http://localhost:3000/api/health
-```
+## Hardening
 
-## Register slash commands
+- Discord Ed25519 signature verification
+- signed timestamp freshness checks
+- replay cache for interaction IDs
+- per-user/global interaction rate limits
+- bounded bodies and responses
+- Activity API requests require a valid Discord OAuth identity
+- OAuth access tokens remain memory-only on the Activity client
+- OAuth client secret stays server-only
+- Horris Core host validation blocks unsafe/private upstream origins
+- upstream timeouts fail closed
+- AI proposal context is revalidated before display
+- explicit `horris-policy` authority check
+- no signing/broadcast primitives in the repo
+- wallet handoff uses Discord `openExternalLink`
+- CI runs dependency audit, release safety checks, tests, typecheck and production build
 
-```bash
-npm run discord:register
-```
+## Product principle
 
-Set Discord's **Interactions Endpoint URL** to:
+**AI proposes → Horris checks → user reviews → wallet approves.**
 
-```text
-https://<your-deployment>/api/discord
-```
-
-Discord will validate the endpoint using an Ed25519 PING request.
-
-## Deploy
-
-Designed for Vercel / Next.js Node runtime. Add the production environment variables in the deployment dashboard, deploy, then run `npm run discord:register` locally or from a trusted environment.
-
-## Safety boundary
-
-- Every production interaction must pass Discord Ed25519 signature verification.
-- Requests older/newer than five minutes are rejected.
-- Interaction body size is bounded.
-- Upstream calls are timeout-bounded.
-- Discord replies are ephemeral by default.
-- No wallet secret is accepted.
-- No signing or transaction submission code exists in this repo.
-- Horris Core performs the real deterministic policy checks.
+No guaranteed-profit claims and no automatic copying of shared trade setups.
