@@ -48,8 +48,8 @@ function parseSide(prompt: string): PerpSide | undefined {
 
 function parseRisk(prompt: string, override?: HorrisRisk): HorrisRisk {
   if (override) return override;
-  if (/\b(conservative|safe|low[ -]?risk)\b/i.test(prompt)) return "Conservative";
-  if (/\b(aggressive|degen|high[ -]?risk)\b/i.test(prompt)) return "Aggressive";
+  if (/\b(conservative|conservatively|safe|safely|low[ -]?risk)\b/i.test(prompt)) return "Conservative";
+  if (/\b(aggressive|aggressively|degen|high[ -]?risk)\b/i.test(prompt)) return "Aggressive";
   return "Balanced";
 }
 
