@@ -8,23 +8,26 @@ export async function GET() {
   try { upstreamHost = new URL(getHorrisApiBaseUrl()).host; } catch {}
 
   const publicKeyConfigured = Boolean(process.env.DISCORD_PUBLIC_KEY?.trim());
+  const applicationIdConfigured = Boolean(process.env.DISCORD_APPLICATION_ID?.trim());
+  const clientSecretConfigured = Boolean(process.env.DISCORD_CLIENT_SECRET?.trim());
   return NextResponse.json({
     service: "horris-discord",
-    ok: publicKeyConfigured && upstreamHost !== "invalid",
+    ok: publicKeyConfigured && applicationIdConfigured && clientSecretConfigured && upstreamHost !== "invalid",
     readiness: {
       discordPublicKeyConfigured: publicKeyConfigured,
-      discordApplicationIdConfigured: Boolean(process.env.DISCORD_APPLICATION_ID?.trim()),
+      discordApplicationIdConfigured: applicationIdConfigured,
+      discordActivityOAuthConfigured: clientSecretConfigured,
+      activityUi: "/",
+      activityComposeApi: "/api/activity/compose",
       horrisCoreHost: upstreamHost
     },
     interactionEndpoint: "/api/discord",
+    activityEnabledInCode: true,
     readOnly: true,
     signingEnabled: false,
     executionEnabled: false,
     secretsExposed: false
   }, {
-    headers: {
-      "Cache-Control": "no-store, private",
-      "X-Content-Type-Options": "nosniff"
-    }
+    headers: { "Cache-Control": "no-store, private", "X-Content-Type-Options": "nosniff" }
   });
 }
