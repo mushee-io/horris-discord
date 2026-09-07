@@ -14,14 +14,25 @@ function json(body: unknown, status = 200) {
 }
 
 function sameOrigin(request: NextRequest) {
-  const origin = request.headers.get("origin");
   const host = request.headers.get("host");
-  if (!origin || !host) return false;
-  try {
-    return new URL(origin).host === host;
-  } catch {
-    return false;
+  if (!host) return false;
+
+  const origin = request.headers.get("origin");
+  if (origin) {
+    try {
+      if (new URL(origin).host === host) return true;
+    } catch {}
   }
+
+  const fetchSite = request.headers.get("sec-fetch-site");
+  const referer = request.headers.get("referer");
+  if (fetchSite === "same-origin" && referer) {
+    try {
+      return new URL(referer).host === host;
+    } catch {}
+  }
+
+  return false;
 }
 
 export async function POST(request: NextRequest) {
@@ -76,10 +87,17 @@ export async function POST(request: NextRequest) {
           ? "DISCORD_GUILD_NOT_FOUND_OR_INACCESSIBLE"
           : "DISCORD_REGISTRATION_FAILED";
 
+    let detail = "";
+    try {
+      const text = await upstream.text();
+      detail = text.slice(0, 500);
+    } catch {}
+
     return json({
       ok: false,
       code,
-      discordStatus: upstream.status
+      discordStatus: upstream.status,
+      detail
     }, 502);
   }
 
