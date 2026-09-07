@@ -1,0 +1,29 @@
+{
+  "name": "horris-discord",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Discord-only read-only interface for Horris Core on Celo",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "discord:register": "node scripts/register-discord.mjs",
+    "verify:release": "node scripts/verify-release.mjs"
+  },
+  "dependencies": {
+    "next": "16.3.4",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "tweetnacl": "1.0.3",
+    "viem": "2.56.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "7.0.2",
+    "vitest": "5.0.0"
+  }
+}
