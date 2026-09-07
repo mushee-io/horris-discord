@@ -5,6 +5,7 @@ import { requestActivityAdvisor } from "../../../lib/activity-core";
 import { getMarketPrice, HorrisApiError, type HorrisRisk } from "../../../lib/horris-api";
 import { consumeInteractionId, ephemeral, MAX_INTERACTION_BYTES, optionMap, verifyDiscordRequest } from "../../../lib/discord-security";
 import { consumeDiscordRateLimit, discordActorId } from "../../../lib/rate-limit";
+import { createWalletLinkRequest, disconnectWallet, getWalletLink, WalletLinkError } from "../../../lib/wallet-link";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -39,6 +40,66 @@ function resolvedMessageContent(data: Record<string, unknown>) {
 function parseRisk(value: unknown): HorrisRisk {
   if (value === "Conservative" || value === "Balanced" || value === "Aggressive") return value;
   throw new Error("Invalid risk profile.");
+}
+
+function publicOrigin(request: NextRequest) {
+  const configured = process.env.HORRIS_DISCORD_PUBLIC_URL?.trim();
+  if (configured) {
+    try {
+      const url = new URL(configured);
+      if (url.protocol === "https:" || (process.env.NODE_ENV !== "production" && url.protocol === "http:")) return url.origin;
+    } catch {}
+  }
+  return request.nextUrl.origin;
+}
+
+function ephemeralLink(content: string, label: string, url: string) {
+  const base = ephemeral(content);
+  return {
+    ...base,
+    data: {
+      ...base.data,
+      components: [
+        {
+          type: 1,
+          components: [
+            { type: 2, style: 5, label, url }
+          ]
+        }
+      ]
+    }
+  };
+}
+
+function shortAddress(address: string) {
+  return `${address.slice(0, 6)}…${address.slice(-4)}`;
+}
+
+async function executeWalletCommand(name: unknown, actorId: string | null, interactionToken: unknown, request: NextRequest) {
+  if (name !== "connect-wallet" && name !== "wallet" && name !== "disconnect-wallet") return null;
+  if (!actorId) throw new WalletLinkError("Horris could not resolve your Discord user identity.", "DISCORD_USER_MISSING", 400);
+
+  if (name === "connect-wallet") {
+    if (typeof interactionToken !== "string") throw new WalletLinkError("Discord callback token is missing.", "DISCORD_CALLBACK_MISSING", 400);
+    const token = await createWalletLinkRequest(actorId, interactionToken);
+    const url = new URL("/wallet/connect", publicOrigin(request));
+    url.searchParams.set("token", token);
+    return ephemeralLink(
+      "Secure wallet verification is ready. Open the link below and sign the one-time ownership message. Horris never receives custody and no transaction is submitted.",
+      "CONNECT WALLET",
+      url.toString()
+    );
+  }
+
+  if (name === "wallet") {
+    const link = await getWalletLink(actorId);
+    if (!link) return ephemeral("No wallet is linked to your Discord account. Run /connect-wallet first.");
+    return ephemeral(`Horris WALLET ✓ ${shortAddress(link.walletAddress)} · chain ${link.chainId} · verified ${link.verifiedAt}. Ownership verified; Discord cannot spend funds.`);
+  }
+
+  const removed = await disconnectWallet(actorId);
+  if (!removed) return ephemeral("No wallet was linked to your Discord account.");
+  return ephemeral(`Wallet disconnected ✓ ${shortAddress(removed.walletAddress)}. Horris Discord no longer associates it with your Discord account.`);
 }
 
 async function executeTrade(options: Record<string, unknown>) {
@@ -116,7 +177,8 @@ export async function POST(request: NextRequest) {
   if (interaction.type !== 2 || !interaction.data || typeof interaction.data !== "object" || Array.isArray(interaction.data)) return json({ error: "Unsupported Discord interaction." }, 400);
   if (!consumeInteractionId(interaction.id)) return json(ephemeral("Duplicate Discord interaction ignored safely."));
 
-  const rate = consumeDiscordRateLimit(discordActorId(interaction));
+  const actorId = discordActorId(interaction);
+  const rate = consumeDiscordRateLimit(actorId);
   if (!rate.allowed) {
     const retrySeconds = Math.max(1, Math.ceil(rate.retryAfterMs / 1000));
     return json(ephemeral(`Horris command rate limit reached. Try again in about ${retrySeconds}s.`));
@@ -130,10 +192,14 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    const walletResponse = await executeWalletCommand(data.name, actorId, interaction.token, request);
+    if (walletResponse) return json(walletResponse);
+    if (data.name === "help") return json(ephemeral("Horris commands: /trade, /connect-wallet, /wallet, /disconnect-wallet, /strategy, /risk, /perp-risk, /perp-status. /trade generates the AI plan directly in Discord. Wallet ownership is verified externally; signing and transaction approval never happen inside Discord."));
     if (data.name === "trade") return json(ephemeral(await executeTrade(optionMap(data.options))));
     const content = await executeDiscordCommand(data.name, optionMap(data.options));
     return json(ephemeral(content));
   } catch (error) {
+    if (error instanceof WalletLinkError) return json(ephemeral(error.message));
     return json(ephemeral(discordSafeErrorMessage(error)));
   }
 }
