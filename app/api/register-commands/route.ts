@@ -1,0 +1,97 @@
+import { NextRequest, NextResponse } from "next/server";
+import { DISCORD_COMMANDS } from "../../../lib/commands";
+
+export const dynamic = "force-dynamic";
+
+function json(body: unknown, status = 200) {
+  return NextResponse.json(body, {
+    status,
+    headers: {
+      "Cache-Control": "no-store, private",
+      "X-Content-Type-Options": "nosniff"
+    }
+  });
+}
+
+function sameOrigin(request: NextRequest) {
+  const origin = request.headers.get("origin");
+  const host = request.headers.get("host");
+  if (!origin || !host) return false;
+  try {
+    return new URL(origin).host === host;
+  } catch {
+    return false;
+  }
+}
+
+export async function POST(request: NextRequest) {
+  if (!sameOrigin(request)) {
+    return json({ ok: false, code: "REGISTRATION_ORIGIN_REJECTED" }, 403);
+  }
+
+  const token = process.env.DISCORD_BOT_TOKEN?.trim();
+  const applicationId = process.env.DISCORD_APPLICATION_ID?.trim();
+  const guildId = process.env.DISCORD_GUILD_ID?.trim();
+
+  if (!token || !applicationId || !guildId) {
+    return json({
+      ok: false,
+      code: "DISCORD_COMMANDS_NOT_CONFIGURED",
+      missing: [
+        !token ? "DISCORD_BOT_TOKEN" : null,
+        !applicationId ? "DISCORD_APPLICATION_ID" : null,
+        !guildId ? "DISCORD_GUILD_ID" : null
+      ].filter(Boolean)
+    }, 503);
+  }
+
+  const endpoint = `https://discord.com/api/v10/applications/${applicationId}/guilds/${guildId}/commands`;
+  const commands = [
+    ...DISCORD_COMMANDS.map((command) => ({ type: 1, ...command })),
+    { type: 3, name: "Analyze with Horris" }
+  ];
+
+  let upstream: Response;
+  try {
+    upstream = await fetch(endpoint, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bot ${token}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(commands),
+      cache: "no-store",
+      signal: AbortSignal.timeout(10000)
+    });
+  } catch {
+    return json({ ok: false, code: "DISCORD_REGISTRATION_UNAVAILABLE" }, 502);
+  }
+
+  if (!upstream.ok) {
+    const code = upstream.status === 401
+      ? "DISCORD_BOT_TOKEN_INVALID"
+      : upstream.status === 403
+        ? "DISCORD_BOT_ACCESS_DENIED"
+        : upstream.status === 404
+          ? "DISCORD_GUILD_NOT_FOUND_OR_INACCESSIBLE"
+          : "DISCORD_REGISTRATION_FAILED";
+
+    return json({
+      ok: false,
+      code,
+      discordStatus: upstream.status
+    }, 502);
+  }
+
+  const registered = await upstream.json() as Array<{ name?: string }>;
+  const names = registered
+    .map((command) => command?.name)
+    .filter((name): name is string => typeof name === "string");
+
+  return json({
+    ok: true,
+    scope: "guild",
+    registered: names,
+    registeredCount: names.length
+  });
+}
