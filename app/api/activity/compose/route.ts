@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { ActivityAuthError, verifyActivityIdentity } from "../../../../lib/activity-auth";
 import { requestActivityAdvisor } from "../../../../lib/activity-core";
 import { missingTradeFields, parseTradePrompt } from "../../../../lib/activity-trade";
-import { HorrisApiError, type HorrisRisk } from "../../../../lib/horris-api";
+import { getMarketPrice, HorrisApiError, type HorrisRisk } from "../../../../lib/horris-api";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -46,17 +46,37 @@ export async function POST(request: NextRequest) {
     const missing = missingTradeFields(parsed);
     if (missing.length) return json({ ready: false, parsed, missing, executionEnabled: false, message: `Add ${missing.join(", ")} to the prompt.` });
 
+    let entryPrice = parsed.entryPrice;
+    let priceSource: "prompt" | "live-updown-oracle" = "prompt";
+    let livePriceAgeSeconds: number | undefined;
+    if (!entryPrice) {
+      const livePrice = await getMarketPrice(parsed.market!);
+      entryPrice = Number(livePrice.price.mid);
+      if (!Number.isFinite(entryPrice) || entryPrice <= 0) throw new HorrisApiError("Live UpDown entry price is invalid", 502, "HORRIS_CORE_INVALID_RESPONSE");
+      priceSource = "live-updown-oracle";
+      livePriceAgeSeconds = livePrice.price.ageSeconds;
+    }
+
+    const resolvedParsed = { ...parsed, entryPrice };
     const result = await requestActivityAdvisor({
       market: parsed.market!,
       side: parsed.side!,
       risk: parsed.risk,
       accountBalanceUsd: parsed.accountBalanceUsd,
-      entryPrice: parsed.entryPrice!,
+      entryPrice,
       preferredMarginUsd: parsed.preferredMarginUsd,
       preferredLeverage: parsed.preferredLeverage,
     });
 
-    return json({ ready: true, parsed, ...result, executionEnabled: false, nextStep: result.review.accepted ? "Review in Horris Terminal and approve with your wallet." : "Horris policy blocked this proposal. Adjust the plan before wallet review." });
+    return json({
+      ready: true,
+      parsed: resolvedParsed,
+      priceSource,
+      livePriceAgeSeconds,
+      ...result,
+      executionEnabled: false,
+      nextStep: result.review.accepted ? "Review in Horris Terminal and approve with your wallet." : "Horris policy blocked this proposal. Adjust the plan before wallet review."
+    });
   } catch (error) {
     if (error instanceof ActivityAuthError) return json({ error: error.message, executionEnabled: false }, error.status);
     if (error instanceof HorrisApiError) return json({ error: error.message, code: error.code, executionEnabled: false }, error.status >= 400 && error.status < 600 ? error.status : 502);
