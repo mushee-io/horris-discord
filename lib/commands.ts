@@ -27,7 +27,15 @@ const riskChoices = HORRIS_RISKS.map((name) => ({ name, value: name }));
 const marketChoices = HORRIS_MARKETS.map((name) => ({ name, value: name }));
 
 export const DISCORD_COMMANDS = [
-  { name: "trade", description: "Launch the Horris AI trading desk" },
+  {
+    name: "trade",
+    description: "Generate a Horris AI trade plan directly in Discord",
+    options: [
+      { name: "prompt", description: "Example: Long BTC with $50 safely", type: 3, required: true, min_length: 3, max_length: 1000 },
+      { name: "balance", description: "Planning balance in USD", type: 10, required: true, min_value: 0.01, max_value: 1_000_000_000 },
+      { name: "risk", description: "Horris risk profile", type: 3, required: true, choices: riskChoices }
+    ]
+  },
   { name: "help", description: "Show Horris commands and safety boundary" },
   {
     name: "strategy",
@@ -97,9 +105,9 @@ export function discordSafeErrorMessage(error: unknown) {
   if (error instanceof DiscordInputError) return error.message;
   if (error instanceof HorrisApiError) {
     if (error.code === "INVALID_ACCOUNT") return error.message;
-    if (error.code === "HORRIS_CORE_TIMEOUT") return "Horris Core timed out. Try again.";
-    if (error.code === "HORRIS_CORE_HTTP_429") return "Horris Core is busy. Try again shortly.";
-    if (error.code.startsWith("HORRIS_CORE_HTTP_4")) return "Horris Core rejected this request.";
+    if (error.code === "HORRIS_CORE_TIMEOUT" || error.code === "HORRIS_AI_TIMEOUT") return "Horris Core timed out. Try again.";
+    if (error.code === "HORRIS_CORE_HTTP_429" || error.code === "AI_PROVIDER_RATE_LIMIT") return "Horris Core is busy. Try again shortly.";
+    if (error.code.startsWith("HORRIS_CORE_HTTP_4") || error.code === "AI_PROVIDER_AUTH" || error.code === "AI_NOT_CONFIGURED") return "Horris AI is not available in the current deployment.";
     return "Horris Core is temporarily unavailable. No transaction was submitted.";
   }
   return "Horris command failed safely. No transaction was submitted.";
@@ -136,7 +144,7 @@ export function formatPerpStatus(positions: PositionsResponse, orders: OrdersRes
 }
 
 export async function executeDiscordCommand(name: unknown, options: Record<string, unknown>) {
-  if (name === "help") return "Horris commands: /trade, /strategy, /risk, /perp-risk, /perp-status. Right-click a message → Apps → Analyze with Horris. Discord is advisory; Horris Core remains the policy authority and wallet approval happens outside Discord.";
+  if (name === "help") return "Horris commands: /trade, /strategy, /risk, /perp-risk, /perp-status. /trade now generates the AI plan directly in Discord; no Activity launch is required. Discord remains advisory; Horris Core is the policy authority and wallet approval happens outside Discord.";
   if (name === "strategy" || name === "risk") {
     const amount = positive(options.amount, "Amount", COMMAND_LIMITS.stableAmount);
     const balance = nonNegative(options.balance, "Balance", COMMAND_LIMITS.accountBalance);
