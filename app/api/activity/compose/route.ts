@@ -10,18 +10,46 @@ export const maxDuration = 30;
 
 const risks = new Set<HorrisRisk>(["Conservative", "Balanced", "Aggressive"]);
 const buckets = new Map<string, { count: number; resetAt: number }>();
+const MAX_ACTIVITY_REQUEST_BYTES = 8 * 1024;
+const MAX_RATE_BUCKETS = 5_000;
 
 function json(data: unknown, status = 200) {
   return NextResponse.json(data, { status, headers: { "Cache-Control": "no-store, private", "X-Content-Type-Options": "nosniff" } });
 }
 
+function pruneBuckets(now: number) {
+  for (const [key, bucket] of buckets) if (bucket.resetAt <= now) buckets.delete(key);
+  while (buckets.size >= MAX_RATE_BUCKETS) {
+    const oldest = buckets.keys().next().value as string | undefined;
+    if (!oldest) break;
+    buckets.delete(oldest);
+  }
+}
+
 function consume(userId: string) {
   const now = Date.now();
+  pruneBuckets(now);
   const existing = buckets.get(userId);
   const bucket = !existing || existing.resetAt <= now ? { count: 0, resetAt: now + 60_000 } : existing;
   bucket.count += 1;
   buckets.set(userId, bucket);
   return { allowed: bucket.count <= 8, retryAfter: Math.max(1, Math.ceil((bucket.resetAt - now) / 1_000)) };
+}
+
+async function readBody(request: NextRequest) {
+  if (!(request.headers.get("content-type") || "").toLowerCase().startsWith("application/json")) {
+    return { error: json({ error: "Unsupported content type.", executionEnabled: false }, 415) } as const;
+  }
+  const declared = request.headers.get("content-length");
+  if (declared) {
+    const length = Number(declared);
+    if (!Number.isSafeInteger(length) || length < 0) return { error: json({ error: "Invalid content length.", executionEnabled: false }, 400) } as const;
+    if (length > MAX_ACTIVITY_REQUEST_BYTES) return { error: json({ error: "Request too large.", executionEnabled: false }, 413) } as const;
+  }
+  const raw = await request.text();
+  if (Buffer.byteLength(raw, "utf8") > MAX_ACTIVITY_REQUEST_BYTES) return { error: json({ error: "Request too large.", executionEnabled: false }, 413) } as const;
+  try { return { body: JSON.parse(raw) as unknown } as const; }
+  catch { return { error: json({ error: "Invalid request.", executionEnabled: false }, 400) } as const; }
 }
 
 export async function POST(request: NextRequest) {
@@ -30,10 +58,9 @@ export async function POST(request: NextRequest) {
     const rate = consume(identity.userId);
     if (!rate.allowed) return json({ error: "AI planning limit reached. Try again shortly.", retryAfter: rate.retryAfter, executionEnabled: false }, 429);
 
-    const length = Number(request.headers.get("content-length") || "0");
-    if (Number.isFinite(length) && length > 8_192) return json({ error: "Request too large.", executionEnabled: false }, 413);
-    let body: unknown;
-    try { body = await request.json(); } catch { return json({ error: "Invalid request.", executionEnabled: false }, 400); }
+    const decoded = await readBody(request);
+    if ("error" in decoded) return decoded.error;
+    const body = decoded.body;
     if (!body || typeof body !== "object" || Array.isArray(body)) return json({ error: "Invalid request.", executionEnabled: false }, 400);
     const input = body as Record<string, unknown>;
     const prompt = typeof input.prompt === "string" ? input.prompt.trim().slice(0, 1_000) : "";
