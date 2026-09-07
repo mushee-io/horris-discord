@@ -2,18 +2,24 @@ import { readFile } from "node:fs/promises";
 
 const required = [
   "app/page.tsx",
+  "app/wallet/connect/page.tsx",
   "app/api/discord/route.ts",
+  "app/api/wallet/challenge/route.ts",
+  "app/api/wallet/verify/route.ts",
   "app/api/health/route.ts",
   "app/api/oauth/token/route.ts",
   "app/api/activity/compose/route.ts",
   "app/api/activity/status/route.ts",
   "components/HorrisActivity.tsx",
+  "components/WalletConnectClient.tsx",
   "lib/activity-auth.ts",
   "lib/activity-core.ts",
   "lib/activity-trade.ts",
   "lib/commands.ts",
   "lib/discord-security.ts",
   "lib/horris-api.ts",
+  "lib/wallet-commands.ts",
+  "lib/wallet-link.ts",
   "scripts/register-discord.mjs",
   ".env.example"
 ];
@@ -21,7 +27,7 @@ const required = [
 const contents = await Promise.all(required.map(async (path) => [path, await readFile(path, "utf8")]));
 const joined = contents.map(([, content]) => content).join("\n");
 
-for (const command of ["trade", "help", "strategy", "risk", "perp-risk", "perp-status", "Analyze with Horris"]) {
+for (const command of ["trade", "help", "connect-wallet", "wallet", "disconnect-wallet", "strategy", "risk", "perp-risk", "perp-status", "Analyze with Horris"]) {
   if (!joined.includes(command)) throw new Error(`Missing Discord command or surface: ${command}`);
 }
 
@@ -35,6 +41,8 @@ if (!joined.includes("DISCORD_CLIENT_SECRET")) throw new Error("Discord Activity
 if (!joined.includes("commands.authorize") || !joined.includes("commands.authenticate")) throw new Error("Discord Activity OAuth handshake is missing");
 if (!joined.includes("Generate a Horris AI trade plan directly in Discord")) throw new Error("Direct Discord /trade planning command is missing");
 if (!joined.includes("requestActivityAdvisor") || !joined.includes("getMarketPrice")) throw new Error("Direct /trade AI or live price integration is missing");
+if (!joined.includes("verifyMessage") || !joined.includes("personal_sign")) throw new Error("Wallet ownership verification flow is missing");
+if (!joined.includes("KV_REST_API_URL") || !joined.includes("UPSTASH_REDIS_REST_URL")) throw new Error("Persistent wallet storage configuration is missing");
 if (!joined.includes("commands.openExternalLink")) throw new Error("Explicit external wallet handoff is missing");
 if (!joined.includes("commands.shareLink")) throw new Error("Discord-native sharing is missing");
 if (!joined.includes("executionEnabled: false")) throw new Error("Execution lock evidence is missing");
