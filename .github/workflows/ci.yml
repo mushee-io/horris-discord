@@ -1,0 +1,33 @@
+name: Horris Discord CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package.json
+      - name: Install dependencies
+        run: npm install --no-fund --no-audit
+      - name: Audit dependencies
+        run: npm audit --audit-level=high
+      - name: Release safety gate
+        run: npm run verify:release
+      - name: Tests
+        run: npm test
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Build
+        run: npm run build
