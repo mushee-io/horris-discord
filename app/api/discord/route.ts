@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { discordSafeErrorMessage, executeDiscordCommand } from "../../../lib/commands";
+import { summarizeParsedMessage } from "../../../lib/activity-trade";
 import { consumeInteractionId, ephemeral, MAX_INTERACTION_BYTES, optionMap, verifyDiscordRequest } from "../../../lib/discord-security";
 import { consumeDiscordRateLimit, discordActorId } from "../../../lib/rate-limit";
 
@@ -19,6 +20,18 @@ function json(data: unknown, status = 200, extraHeaders: Record<string, string> 
       ...extraHeaders
     }
   });
+}
+
+function resolvedMessageContent(data: Record<string, unknown>) {
+  const targetId = data.target_id;
+  const resolved = data.resolved;
+  if (typeof targetId !== "string" || !resolved || typeof resolved !== "object" || Array.isArray(resolved)) return undefined;
+  const messages = (resolved as Record<string, unknown>).messages;
+  if (!messages || typeof messages !== "object" || Array.isArray(messages)) return undefined;
+  const message = (messages as Record<string, unknown>)[targetId];
+  if (!message || typeof message !== "object" || Array.isArray(message)) return undefined;
+  const content = (message as Record<string, unknown>).content;
+  return typeof content === "string" ? content.slice(0, 1_000) : undefined;
 }
 
 export async function POST(request: NextRequest) {
@@ -43,14 +56,8 @@ export async function POST(request: NextRequest) {
   if (!body || typeof body !== "object" || Array.isArray(body)) return json({ error: "Invalid Discord interaction." }, 400);
   const interaction = body as Record<string, unknown>;
 
-  // Discord endpoint verification PING. Signature verification above is still mandatory.
   if (interaction.type === 1) return json({ type: 1 });
-
-  if (interaction.type !== 2 || !interaction.data || typeof interaction.data !== "object" || Array.isArray(interaction.data)) {
-    return json({ error: "Unsupported Discord interaction." }, 400);
-  }
-
-  // Best-effort replay defense in addition to Discord's signed timestamp window.
+  if (interaction.type !== 2 || !interaction.data || typeof interaction.data !== "object" || Array.isArray(interaction.data)) return json({ error: "Unsupported Discord interaction." }, 400);
   if (!consumeInteractionId(interaction.id)) return json(ephemeral("Duplicate Discord interaction ignored safely."));
 
   const rate = consumeDiscordRateLimit(discordActorId(interaction));
@@ -60,6 +67,16 @@ export async function POST(request: NextRequest) {
   }
 
   const data = interaction.data as Record<string, unknown>;
+  if (data.name === "trade") {
+    // Discord callback type 12 launches the Activity associated with this application.
+    return json({ type: 12 });
+  }
+
+  if (data.name === "analyze-with-horris") {
+    const content = resolvedMessageContent(data);
+    return json(ephemeral(content ? summarizeParsedMessage(content) : "Horris could not read that message. Use /trade to open the AI trading desk."));
+  }
+
   try {
     const content = await executeDiscordCommand(data.name, optionMap(data.options));
     return json(ephemeral(content));
