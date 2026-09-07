@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { discordSafeErrorMessage, executeDiscordCommand } from "../../../lib/commands";
-import { summarizeParsedMessage } from "../../../lib/activity-trade";
+import { summarizeParsedMessage, missingTradeFields, parseTradePrompt } from "../../../lib/activity-trade";
+import { requestActivityAdvisor } from "../../../lib/activity-core";
+import { getMarketPrice, HorrisApiError, type HorrisRisk } from "../../../lib/horris-api";
 import { consumeInteractionId, ephemeral, MAX_INTERACTION_BYTES, optionMap, verifyDiscordRequest } from "../../../lib/discord-security";
 import { consumeDiscordRateLimit, discordActorId } from "../../../lib/rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 10;
-
-const DISCORD_SNOWFLAKE = /^\d{16,20}$/;
+export const maxDuration = 30;
 
 function json(data: unknown, status = 200, extraHeaders: Record<string, string> = {}) {
   return NextResponse.json(data, {
@@ -24,35 +24,6 @@ function json(data: unknown, status = 200, extraHeaders: Record<string, string> 
   });
 }
 
-function tradeLaunchPrompt(applicationId: string | undefined) {
-  const id = applicationId?.trim() || "";
-  if (!DISCORD_SNOWFLAKE.test(id)) {
-    return ephemeral("Horris Activity is not configured correctly. No trade was submitted.");
-  }
-
-  return {
-    type: 4,
-    data: {
-      content: "HORRIS TRADING DESK · Open the AI trading Activity inside Discord.",
-      flags: 64,
-      allowed_mentions: { parse: [] as string[] },
-      components: [
-        {
-          type: 1,
-          components: [
-            {
-              type: 2,
-              style: 5,
-              label: "OPEN HORRIS TRADING DESK",
-              url: `https://discord.com/activities/${id}`
-            }
-          ]
-        }
-      ]
-    }
-  } as const;
-}
-
 function resolvedMessageContent(data: Record<string, unknown>) {
   const targetId = data.target_id;
   const resolved = data.resolved;
@@ -63,6 +34,60 @@ function resolvedMessageContent(data: Record<string, unknown>) {
   if (!message || typeof message !== "object" || Array.isArray(message)) return undefined;
   const content = (message as Record<string, unknown>).content;
   return typeof content === "string" ? content.slice(0, 1_000) : undefined;
+}
+
+function parseRisk(value: unknown): HorrisRisk {
+  if (value === "Conservative" || value === "Balanced" || value === "Aggressive") return value;
+  throw new Error("Invalid risk profile.");
+}
+
+async function executeTrade(options: Record<string, unknown>) {
+  const prompt = typeof options.prompt === "string" ? options.prompt.trim().slice(0, 1_000) : "";
+  const balance = Number(options.balance);
+  const risk = parseRisk(options.risk);
+  if (prompt.length < 3) return "Tell Horris the trade you want, for example: Long BTC with $50 safely.";
+  if (!Number.isFinite(balance) || balance <= 0 || balance > 1_000_000_000) return "Planning balance must be a positive number.";
+
+  const parsed = parseTradePrompt(prompt, balance, risk);
+  const missing = missingTradeFields(parsed);
+  if (missing.length) return `Horris needs ${missing.join(" and ")} in the prompt. Example: Long BTC with $50 safely.`;
+
+  let entryPrice = parsed.entryPrice;
+  let priceLabel = "PROMPT PRICE";
+  if (!entryPrice) {
+    const live = await getMarketPrice(parsed.market!);
+    entryPrice = Number(live.price.mid);
+    if (!Number.isFinite(entryPrice) || entryPrice <= 0) throw new HorrisApiError("Live UpDown entry price is invalid", 502, "HORRIS_CORE_INVALID_RESPONSE");
+    priceLabel = "LIVE UPDOWN PRICE";
+  }
+
+  const result = await requestActivityAdvisor({
+    market: parsed.market!,
+    side: parsed.side!,
+    risk: parsed.risk,
+    accountBalanceUsd: parsed.accountBalanceUsd,
+    entryPrice,
+    preferredMarginUsd: parsed.preferredMarginUsd,
+    preferredLeverage: parsed.preferredLeverage,
+  });
+
+  const p = result.proposal;
+  const analysis = result.review.analysis;
+  const verdict = result.review.accepted && analysis?.approved ? "POLICY PASS" : "POLICY BLOCK";
+  const riskLine = analysis
+    ? `${analysis.accountRiskPercent.toFixed(2)}% account risk · ${analysis.stopDistancePercent.toFixed(2)}% stop distance`
+    : "Policy analysis unavailable";
+  const rationale = p.rationale ? `\nAI: ${p.rationale.slice(0, 420)}` : "";
+
+  return [
+    `HORRIS AI TRADE PLAN · ${verdict}`,
+    `${p.market} ${p.side.toUpperCase()} · ${p.leverage.toFixed(2)}x · $${p.marginUsd.toFixed(2)} margin`,
+    `${priceLabel}: ${p.entryPrice} · STOP: ${p.stopLoss} · TAKE PROFIT: ${p.takeProfit}`,
+    `${riskLine} · ${p.risk}`,
+    `Model: ${result.model}`,
+    rationale,
+    "AI proposes. Horris policy decides. No transaction or order was submitted."
+  ].filter(Boolean).join("\n");
 }
 
 export async function POST(request: NextRequest) {
@@ -98,14 +123,14 @@ export async function POST(request: NextRequest) {
   }
 
   const data = interaction.data as Record<string, unknown>;
-  if (data.name === "trade") return json(tradeLaunchPrompt(process.env.DISCORD_APPLICATION_ID));
 
   if (data.name === "Analyze with Horris" || data.name === "analyze-with-horris") {
     const content = resolvedMessageContent(data);
-    return json(ephemeral(content ? summarizeParsedMessage(content) : "Horris could not read that message. Use /trade to open the AI trading desk."));
+    return json(ephemeral(content ? summarizeParsedMessage(content) : "Horris could not read that message. Use /trade to generate a plan directly in Discord."));
   }
 
   try {
+    if (data.name === "trade") return json(ephemeral(await executeTrade(optionMap(data.options))));
     const content = await executeDiscordCommand(data.name, optionMap(data.options));
     return json(ephemeral(content));
   } catch (error) {
