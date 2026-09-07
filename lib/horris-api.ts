@@ -53,6 +53,23 @@ export type Order = {
 
 export type PositionsResponse = { positionCount: number; positions: Position[]; readOnly: true };
 export type OrdersResponse = { orderCount: number; orders: Order[]; readOnly: true };
+export type MarketPriceResponse = {
+  venue: "UpDown";
+  chainId: 42220;
+  market: string;
+  quoteSymbol: string;
+  price: {
+    market: string;
+    min: string;
+    max: string;
+    mid: string;
+    timestamp: number;
+    ageSeconds: number;
+  };
+  authority: "updown-live-oracle";
+  readOnly: true;
+  executionEnabled: false;
+};
 
 type FetchOptions = { method?: "GET" | "POST"; body?: string; timeoutMs?: number };
 
@@ -109,7 +126,7 @@ function number(value: unknown, label: string, min = 0, max = 1e30) {
   return value;
 }
 
-function integer(value: unknown, label: string, min = 0, max = 1_000_000) {
+function integer(value: unknown, label: string, min = 0, max = 1_000_000_000_000) {
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value < min || value > max) throw new HorrisApiError(`${label} is invalid`, 502, "HORRIS_CORE_INVALID_RESPONSE");
   return value;
 }
@@ -123,6 +140,12 @@ function decimalString(value: unknown, label: string) {
   const result = text(value, label, 120);
   const parsed = Number(result);
   if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1e30) throw new HorrisApiError(`${label} is invalid`, 502, "HORRIS_CORE_INVALID_RESPONSE");
+  return result;
+}
+
+function positiveDecimalString(value: unknown, label: string) {
+  const result = decimalString(value, label);
+  if (Number(result) <= 0) throw new HorrisApiError(`${label} is invalid`, 502, "HORRIS_CORE_INVALID_RESPONSE");
   return result;
 }
 
@@ -231,11 +254,38 @@ function validateOrders(value: unknown): OrdersResponse {
   return { orderCount: integer(root.orderCount, "Horris order count"), orders, readOnly: true };
 }
 
+function validateMarketPrice(value: unknown): MarketPriceResponse {
+  const root = record(value, "Horris market price response");
+  if (root.venue !== "UpDown" || root.chainId !== 42220 || root.readOnly !== true || root.executionEnabled !== false || root.authority !== "updown-live-oracle") {
+    throw new HorrisApiError("Horris market price authority boundary is invalid", 502, "HORRIS_CORE_INVALID_RESPONSE");
+  }
+  const price = record(root.price, "Horris market price");
+  const mid = positiveDecimalString(price.mid, "Horris market mid price");
+  const min = positiveDecimalString(price.min, "Horris market min price");
+  const max = positiveDecimalString(price.max, "Horris market max price");
+  if (Number(max) < Number(min)) throw new HorrisApiError("Horris market price bounds are invalid", 502, "HORRIS_CORE_INVALID_RESPONSE");
+  return {
+    venue: "UpDown",
+    chainId: 42220,
+    market: text(root.market, "Horris market symbol", 40),
+    quoteSymbol: text(root.quoteSymbol, "Horris quote symbol", 20),
+    price: {
+      market: text(price.market, "Horris market pair", 80),
+      min,
+      max,
+      mid,
+      timestamp: integer(price.timestamp, "Horris market timestamp"),
+      ageSeconds: integer(price.ageSeconds, "Horris market price age", 0, 86_400)
+    },
+    authority: "updown-live-oracle",
+    readOnly: true,
+    executionEnabled: false
+  };
+}
+
 async function readBoundedJson(response: Response) {
   const contentLength = Number(response.headers.get("content-length") || "0");
-  if (Number.isFinite(contentLength) && contentLength > MAX_CORE_RESPONSE_BYTES) {
-    throw new HorrisApiError("Horris Core response exceeded the safety limit", 502, "HORRIS_CORE_RESPONSE_TOO_LARGE");
-  }
+  if (Number.isFinite(contentLength) && contentLength > MAX_CORE_RESPONSE_BYTES) throw new HorrisApiError("Horris Core response exceeded the safety limit", 502, "HORRIS_CORE_RESPONSE_TOO_LARGE");
 
   if (!response.body) {
     const fallback = await response.text();
@@ -296,10 +346,7 @@ async function horrisFetch(path: string, options: FetchOptions = {}) {
       method: options.method || "GET",
       body: options.body,
       signal: controller.signal,
-      headers: {
-        Accept: "application/json",
-        ...(options.body ? { "Content-Type": "application/json" } : {})
-      },
+      headers: { Accept: "application/json", ...(options.body ? { "Content-Type": "application/json" } : {}) },
       cache: "no-store",
       credentials: "omit",
       redirect: "error"
@@ -323,11 +370,7 @@ export async function getCoreHealth() {
 }
 
 export async function getStableStrategy(amount: number, balance: number, risk: HorrisRisk) {
-  const data = await horrisFetch("/api/strategy", {
-    method: "POST",
-    body: JSON.stringify({ amount, balance, risk })
-  });
-  return validateStrategy(data);
+  return validateStrategy(await horrisFetch("/api/strategy", { method: "POST", body: JSON.stringify({ amount, balance, risk }) }));
 }
 
 export async function analyzePerp(input: {
@@ -341,11 +384,12 @@ export async function analyzePerp(input: {
   stopLoss: number;
   takeProfit?: number;
 }) {
-  const data = await horrisFetch("/api/perps/analyze", {
-    method: "POST",
-    body: JSON.stringify(input)
-  });
-  return validatePerp(data);
+  return validatePerp(await horrisFetch("/api/perps/analyze", { method: "POST", body: JSON.stringify(input) }));
+}
+
+export async function getMarketPrice(market: string) {
+  if (!/^[A-Za-z0-9/_-]{2,40}$/.test(market)) throw new HorrisApiError("Choose a supported UpDown market.", 400, "INVALID_MARKET");
+  return validateMarketPrice(await horrisFetch(`/api/perps/market-price?market=${encodeURIComponent(market)}`, { timeoutMs: 3_500 }));
 }
 
 export async function getPerpStatus(account: string) {
