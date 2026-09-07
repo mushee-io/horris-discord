@@ -8,6 +8,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 10;
 
+const DISCORD_SNOWFLAKE = /^\d{16,20}$/;
+
 function json(data: unknown, status = 200, extraHeaders: Record<string, string> = {}) {
   return NextResponse.json(data, {
     status,
@@ -20,6 +22,35 @@ function json(data: unknown, status = 200, extraHeaders: Record<string, string> 
       ...extraHeaders
     }
   });
+}
+
+function tradeLaunchPrompt(applicationId: string | undefined) {
+  const id = applicationId?.trim() || "";
+  if (!DISCORD_SNOWFLAKE.test(id)) {
+    return ephemeral("Horris Activity is not configured correctly. No trade was submitted.");
+  }
+
+  return {
+    type: 4,
+    data: {
+      content: "HORRIS TRADING DESK · Open the AI trading Activity inside Discord.",
+      flags: 64,
+      allowed_mentions: { parse: [] as string[] },
+      components: [
+        {
+          type: 1,
+          components: [
+            {
+              type: 2,
+              style: 5,
+              label: "OPEN HORRIS TRADING DESK",
+              url: `https://discord.com/activities/${id}`
+            }
+          ]
+        }
+      ]
+    }
+  } as const;
 }
 
 function resolvedMessageContent(data: Record<string, unknown>) {
@@ -67,7 +98,7 @@ export async function POST(request: NextRequest) {
   }
 
   const data = interaction.data as Record<string, unknown>;
-  if (data.name === "trade") return json({ type: 12 });
+  if (data.name === "trade") return json(tradeLaunchPrompt(process.env.DISCORD_APPLICATION_ID));
 
   if (data.name === "Analyze with Horris" || data.name === "analyze-with-horris") {
     const content = resolvedMessageContent(data);
