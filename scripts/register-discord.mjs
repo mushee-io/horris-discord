@@ -34,8 +34,8 @@ const commands = [
       { name: "leverage", description: "Requested leverage", type: 10, required: true, min_value: 0.01 },
       { name: "entry", description: "Entry price", type: 10, required: true, min_value: 0.000001 },
       { name: "stop", description: "Stop-loss price", type: 10, required: true, min_value: 0.000001 },
-      { name: "take_profit", description: "Optional take-profit price", type: 10, required: false, min_value: 0.000001 },
-      { name: "risk", description: "Horris risk profile", type: 3, required: true, choices: risks }
+      { name: "risk", description: "Horris risk profile", type: 3, required: true, choices: risks },
+      { name: "take_profit", description: "Optional take-profit price", type: 10, required: false, min_value: 0.000001 }
     ]
   },
   {
@@ -58,7 +58,7 @@ const response = await fetch(endpoint, {
 
 if (!response.ok) {
   const text = await response.text();
-  throw new Error(`Discord command registration failed (${response.status}): ${text.slice(0, 500)}`);
+  throw new Error(`Discord command registration failed (${response.status}): ${text.slice(0, 1000)}`);
 }
 
 const registered = await response.json();
