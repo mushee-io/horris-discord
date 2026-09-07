@@ -7,6 +7,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 10;
 
+const MAX_STATUS_REQUEST_BYTES = 4 * 1024;
+
 function json(data: unknown, status = 200) {
   return NextResponse.json(data, { status, headers: { "Cache-Control": "no-store, private", "X-Content-Type-Options": "nosniff" } });
 }
@@ -14,10 +16,22 @@ function json(data: unknown, status = 200) {
 export async function POST(request: NextRequest) {
   try {
     await verifyActivityIdentity(request.headers.get("authorization"));
-    const length = Number(request.headers.get("content-length") || "0");
-    if (Number.isFinite(length) && length > 4_096) return json({ error: "Request too large.", readOnly: true }, 413);
-    const body = await request.json() as { account?: unknown };
-    const account = typeof body?.account === "string" ? body.account.trim() : "";
+    if (!(request.headers.get("content-type") || "").toLowerCase().startsWith("application/json")) return json({ error: "Unsupported content type.", readOnly: true }, 415);
+
+    const declared = request.headers.get("content-length");
+    if (declared) {
+      const length = Number(declared);
+      if (!Number.isSafeInteger(length) || length < 0) return json({ error: "Invalid content length.", readOnly: true }, 400);
+      if (length > MAX_STATUS_REQUEST_BYTES) return json({ error: "Request too large.", readOnly: true }, 413);
+    }
+
+    const raw = await request.text();
+    if (Buffer.byteLength(raw, "utf8") > MAX_STATUS_REQUEST_BYTES) return json({ error: "Request too large.", readOnly: true }, 413);
+
+    let body: unknown;
+    try { body = JSON.parse(raw); } catch { return json({ error: "Invalid request.", readOnly: true }, 400); }
+    if (!body || typeof body !== "object" || Array.isArray(body)) return json({ error: "Invalid request.", readOnly: true }, 400);
+    const account = typeof (body as Record<string, unknown>).account === "string" ? String((body as Record<string, unknown>).account).trim() : "";
     if (!isAddress(account)) return json({ error: "Enter a valid Celo wallet address.", readOnly: true }, 400);
     const data = await getPerpStatus(account);
     return json({ ...data, account, readOnly: true, executionEnabled: false });
