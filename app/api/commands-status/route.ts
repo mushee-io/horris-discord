@@ -1,9 +1,14 @@
 import { NextResponse } from "next/server";
 import { DISCORD_COMMANDS } from "../../../lib/commands";
+import { WALLET_DISCORD_COMMANDS } from "../../../lib/wallet-commands";
 
 export const dynamic = "force-dynamic";
 
-const expected = [...DISCORD_COMMANDS.map((command) => command.name), "Analyze with Horris"];
+const expected = [
+  ...DISCORD_COMMANDS.map((command) => command.name),
+  ...WALLET_DISCORD_COMMANDS.map((command) => command.name),
+  "Analyze with Horris"
+];
 
 function response(body: unknown, status = 200) {
   return NextResponse.json(body, {
